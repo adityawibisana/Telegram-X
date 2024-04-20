@@ -158,6 +158,8 @@ public class MainActivity extends BaseActivity implements GlobalAccountListener,
         });
       });
     }
+
+    new aditya.wibisana.audioforwarder.MessageForwarder(TdlibManager.instance().current().client());
   }
 
   public void proceedFromRecovery () {

@@ -380,6 +380,7 @@ dependencies {
   implementation("androidx.media3:media3-common:${LibraryVersions.ANDROIDX_MEDIA}")
   // 17.x version requires minSdk 19 or higher
   implementation("com.google.mlkit:language-id:16.1.1")
+  implementation(project(":audioforwarder"))
   // The Checker Framework: https://checkerframework.org/CHANGELOG.md
   compileOnly("org.checkerframework:checker-qual:3.42.0")
   // OkHttp: https://github.com/square/okhttp/blob/master/CHANGELOG.md

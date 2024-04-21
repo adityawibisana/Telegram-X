@@ -1,6 +1,7 @@
 package aditya.wibisana.forwarder
 
 import org.drinkless.tdlib.TdApi
+import org.drinkless.tdlib.TdApi.ForwardMessages
 import org.drinkless.tdlib.TdApi.MessageVoiceNote
 import org.thunderdog.challegram.data.TD
 import org.thunderdog.challegram.telegram.GlobalMessageListener
@@ -11,6 +12,8 @@ object AudioForwarder : GlobalMessageListener  {
   @Suppress("SpellCheckingInspection")
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
+
+  private val forwardedList = mutableListOf<MessageForwardModel>()
 
   fun initialize(tdLibManager: TdlibManager) {
     this.context = tdLibManager
@@ -101,11 +104,11 @@ object AudioForwarder : GlobalMessageListener  {
   }
 
   @Suppress("SameParameterValue")
-  private fun forwardVoiceNote(targetUserId: Long, messageId: Long, chatId: Long) {
+  private fun forwardMessage(targetUserId: Long, messageId: Long, chatId: Long) {
     val client = context.current().client()
 
     // Create the forwardMessage request
-    val forwardMessage = TdApi.ForwardMessages(
+    val forwardMessage = ForwardMessages(
       targetUserId, //Identifier of the chat to which to forward messages.
       0, // messageThreadId If not 0, the message thread identifier in which the message will be sent; for forum threads only.
       chatId, // fromChatId Identifier of the chat from which to forward messages.
@@ -116,11 +119,12 @@ object AudioForwarder : GlobalMessageListener  {
     )
 
     // Send the forwardMessage request
-    client.send(forwardMessage) { forwardResult ->
-      if (forwardResult is TdApi.Ok) {
-        println("Voice note forwarded successfully")
-      } else {
-        println("Error forwarding voice note")
+    client.send(forwardMessage) { forwardResults ->
+      (forwardResults as? TdApi.Messages?)?.messages?.forEach {
+        println("targetUserId:${targetUserId} messageId:${messageId} chatId:${chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
+        if (it.content is MessageVoiceNote) {
+          forwardedList.add(MessageForwardModel(messageId = messageId, chatId = chatId))
+        }
       }
     }
   }
@@ -128,7 +132,15 @@ object AudioForwarder : GlobalMessageListener  {
 
   override fun onNewMessage(tdlib: Tdlib?, message: TdApi.Message?) {
     (message?.content as? MessageVoiceNote?)?.run {
-      forwardVoiceNote(VOICEHOTKEYBOT, message.id, message.chatId)
+      forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId)
+    }
+    (message?.content as? TdApi.MessageText?)?.run {
+      (message.replyTo as? TdApi.MessageReplyToMessage?)?.run {
+        if (chatId == VOICEHOTKEYBOT && forwardedList.size > 0) {
+          forwardMessage(forwardedList[0].chatId, message.id, message.chatId)
+          forwardedList.removeFirst()
+        }
+      }
     }
   }
 
@@ -140,3 +152,6 @@ object AudioForwarder : GlobalMessageListener  {
   override fun onMessageSendFailed(tdlib: Tdlib?, message: TdApi.Message?, oldMessageId: Long, error: TdApi.Error?) { }
   override fun onMessagesDeleted(tdlib: Tdlib?, chatId: Long, messageIds: LongArray?) { }
 }
+
+data class MessageForwardModel(val messageId: Long, val chatId: Long)
+

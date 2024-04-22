@@ -142,13 +142,12 @@ object AudioForwarder : GlobalMessageListener  {
         forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId, message.messageThreadId)
       }
       is MessageText -> {
-        (message.replyTo as? MessageReplyToMessage?)?.run {
-          currentTargetId?.also {
-            if (chatId == VOICEHOTKEYBOT) {
-              forwardMessage(it, message.id, message.chatId, message.messageThreadId)
-              currentTargetId = null
-              markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
-            }
+        val replyTo = message.replyTo as? MessageReplyToMessage? ?: return
+        currentTargetId?.also {
+          if (replyTo.chatId == VOICEHOTKEYBOT) {
+            forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+            currentTargetId = null
+            markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
           }
         }
       }

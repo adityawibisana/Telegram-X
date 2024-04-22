@@ -1,8 +1,7 @@
 package aditya.wibisana.forwarder
 
-import org.drinkless.tdlib.TdApi
-import org.drinkless.tdlib.TdApi.ForwardMessages
-import org.drinkless.tdlib.TdApi.MessageVoiceNote
+import org.drinkless.tdlib.Client
+import org.drinkless.tdlib.TdApi.*
 import org.thunderdog.challegram.data.TD
 import org.thunderdog.challegram.telegram.GlobalMessageListener
 import org.thunderdog.challegram.telegram.Tdlib
@@ -12,30 +11,32 @@ object AudioForwarder : GlobalMessageListener  {
   @Suppress("SpellCheckingInspection")
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
+  private lateinit var client: Client
 
   private val forwardedList = mutableListOf<MessageForwardModel>()
 
   fun initialize(tdLibManager: TdlibManager) {
     this.context = tdLibManager
     context.global().addMessageListener(this)
+    client = context.current().client()
   }
 
   @Suppress("SameParameterValue")
   private fun initializeChatAndSendMessage(targetUserId: Long, messageText: String?) {
     // Create a new private chat with the user
-    val chat = TdApi.Chat()
+    val chat = Chat()
     chat.id = targetUserId
-    chat.type = TdApi.ChatTypePrivate()
-    val sender = TdApi.MessageSenderUser()
+    chat.type = ChatTypePrivate()
+    val sender = MessageSenderUser()
     sender.userId = targetUserId
 
     // Create the message content
-    val inputMessageText = TdApi.InputMessageText(
-      TdApi.FormattedText(messageText, null),
+    val inputMessageText = InputMessageText(
+      FormattedText(messageText, null),
       null,
       false)
 
-    val sendMessage = TdApi.SendMessage(
+    val sendMessage = SendMessage(
       targetUserId,
       0,
       null,
@@ -43,13 +44,12 @@ object AudioForwarder : GlobalMessageListener  {
       null,
       inputMessageText)
 
-    val client = context.current().client()
     // Send the createChat and sendMessage requests
-    client.send(TdApi.CreatePrivateChat(targetUserId, true)) { result ->
-      if (result is TdApi.Chat) {
+    client.send(CreatePrivateChat(targetUserId, true)) { result ->
+      if (result is Chat) {
         // Chat created successfully, now send the message
         client.send(sendMessage) { sendMessageResult ->
-          if (sendMessageResult is TdApi.Ok) {
+          if (sendMessageResult is Ok) {
             println("Message sent successfully")
           } else {
             println("Error sending message")
@@ -63,17 +63,15 @@ object AudioForwarder : GlobalMessageListener  {
 
   private fun initializeChatAndSendVoiceNoteMessage(targetUserId: Long, voiceNotePath: String) {
     // Create a new private chat with the user
-    val chat = TdApi.Chat()
+    val chat = Chat()
     chat.id = targetUserId
-    chat.type = TdApi.ChatTypePrivate()
-
-    val client = context.current().client()
+    chat.type = ChatTypePrivate()
 
     // Send the createChat request
-    client.send(TdApi.CreatePrivateChat(targetUserId, true)) { result ->
-      if (result is TdApi.Chat) {
+    client.send(CreatePrivateChat(targetUserId, true)) { result ->
+      if (result is Chat) {
         // Chat created successfully, now send the voice note
-        val inputMessageVoiceNote = TdApi.InputMessageVoiceNote(
+        val inputMessageVoiceNote = InputMessageVoiceNote(
           TD.createInputFile(voiceNotePath),
           0, // duration (in seconds), set to 0 for auto-detection
           null, // waveform data (optional)
@@ -81,7 +79,7 @@ object AudioForwarder : GlobalMessageListener  {
           null  // selfDestructType (optional)
         )
 
-        val sendMessage = TdApi.SendMessage(
+        val sendMessage = SendMessage(
           targetUserId,
           0,
           null, // disableNotification
@@ -91,7 +89,7 @@ object AudioForwarder : GlobalMessageListener  {
         )
 
         client.send(sendMessage) { sendMessageResult ->
-          if (sendMessageResult is TdApi.Ok) {
+          if (sendMessageResult is Ok) {
             println("Voice note sent successfully")
           } else {
             println("Error sending voice note")
@@ -105,8 +103,6 @@ object AudioForwarder : GlobalMessageListener  {
 
   @Suppress("SameParameterValue")
   private fun forwardMessage(targetUserId: Long, messageId: Long, chatId: Long) {
-    val client = context.current().client()
-
     // Create the forwardMessage request
     val forwardMessage = ForwardMessages(
       targetUserId, //Identifier of the chat to which to forward messages.
@@ -120,7 +116,7 @@ object AudioForwarder : GlobalMessageListener  {
 
     // Send the forwardMessage request
     client.send(forwardMessage) { forwardResults ->
-      (forwardResults as? TdApi.Messages?)?.messages?.forEach {
+      (forwardResults as? Messages?)?.messages?.forEach {
         println("targetUserId:${targetUserId} messageId:${messageId} chatId:${chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
         if (it.content is MessageVoiceNote) {
           forwardedList.add(MessageForwardModel(messageId = messageId, chatId = chatId))
@@ -130,27 +126,37 @@ object AudioForwarder : GlobalMessageListener  {
   }
 
 
-  override fun onNewMessage(tdlib: Tdlib?, message: TdApi.Message?) {
+  override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
     (message?.content as? MessageVoiceNote?)?.run {
       forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId)
     }
-    (message?.content as? TdApi.MessageText?)?.run {
-      (message.replyTo as? TdApi.MessageReplyToMessage?)?.run {
+    (message?.content as? MessageText?)?.run {
+      (message.replyTo as? MessageReplyToMessage?)?.run {
         if (chatId == VOICEHOTKEYBOT && forwardedList.size > 0) {
           forwardMessage(forwardedList[0].chatId, message.id, message.chatId)
           forwardedList.removeFirst()
+          markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
         }
       }
     }
   }
 
-  override fun onNewMessages(tdlib: Tdlib?, messages: Array<out TdApi.Message>?) {
+  override fun onNewMessages(tdlib: Tdlib?, messages: Array<out Message>?) {
     println(messages.toString())
   }
 
-  override fun onMessageSendSucceeded(tdlib: Tdlib?, message: TdApi.Message?, oldMessageId: Long) { }
-  override fun onMessageSendFailed(tdlib: Tdlib?, message: TdApi.Message?, oldMessageId: Long, error: TdApi.Error?) { }
+  override fun onMessageSendSucceeded(tdlib: Tdlib?, message: Message?, oldMessageId: Long) { }
+  override fun onMessageSendFailed(tdlib: Tdlib?, message: Message?, oldMessageId: Long, error: Error?) { }
   override fun onMessagesDeleted(tdlib: Tdlib?, chatId: Long, messageIds: LongArray?) { }
+
+  private fun markMessageAsRead(chatId: Long, messageIds: LongArray) {
+    listOf(MessageSourceNotification(), MessageSourceChatHistory(), MessageSourceChatList(), MessageSourceOther()).forEach {
+      val readMessage = ViewMessages(chatId, messageIds, it, true)
+      client.send(readMessage) {
+        // no use
+      }
+    }
+  }
 }
 
 data class MessageForwardModel(val messageId: Long, val chatId: Long)

@@ -14,7 +14,7 @@ object AudioForwarder : GlobalMessageListener  {
   private lateinit var context: TdlibManager
   private lateinit var client: Client
 
-  private val forwardedList = mutableListOf<MessageForwardModel>()
+  private var currentTargetId : Long? = null
 
   fun initialize(tdLibManager: TdlibManager) {
     this.context = tdLibManager
@@ -127,7 +127,7 @@ object AudioForwarder : GlobalMessageListener  {
       (forwardResults as? Messages?)?.messages?.forEach {
         println("targetUserId:${targetUserId} messageId:${messageId} chatId:${chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
         if (it.content is MessageVoiceNote) {
-          forwardedList.add(MessageForwardModel(messageId = messageId, chatId = chatId))
+          currentTargetId = chatId
         }
       }
     }
@@ -136,14 +136,17 @@ object AudioForwarder : GlobalMessageListener  {
 
   override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
     (message?.content as? MessageVoiceNote?)?.run {
-      forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId)
+      // do not send if it's a forward: message.forwardInfo != null
+      forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId, message.messageThreadId)
     }
     (message?.content as? MessageText?)?.run {
       (message.replyTo as? MessageReplyToMessage?)?.run {
-        if (chatId == VOICEHOTKEYBOT && forwardedList.size > 0) {
-          forwardMessage(forwardedList[0].chatId, message.id, message.chatId)
-          forwardedList.removeFirst()
-          markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
+        currentTargetId?.also {
+          if (chatId == VOICEHOTKEYBOT) {
+            forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+            currentTargetId = null
+            markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
+          }
         }
       }
     }
@@ -166,6 +169,4 @@ object AudioForwarder : GlobalMessageListener  {
     }
   }
 }
-
-data class MessageForwardModel(val messageId: Long, val chatId: Long)
 

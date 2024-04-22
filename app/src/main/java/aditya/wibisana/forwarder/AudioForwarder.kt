@@ -24,13 +24,6 @@ object AudioForwarder : GlobalMessageListener  {
 
   @Suppress("SameParameterValue")
   private fun initializeChatAndSendMessage(targetUserId: Long, messageText: String?) {
-    // Create a new private chat with the user
-    val chat = Chat()
-    chat.id = targetUserId
-    chat.type = ChatTypePrivate()
-    val sender = MessageSenderUser()
-    sender.userId = targetUserId
-
     // Create the message content
     val inputMessageText = InputMessageText(
       FormattedText(messageText, null),

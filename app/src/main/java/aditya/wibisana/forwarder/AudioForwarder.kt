@@ -103,11 +103,11 @@ object AudioForwarder : GlobalMessageListener  {
   }
 
   @Suppress("SameParameterValue")
-  private fun forwardMessage(targetUserId: Long, messageId: Long, chatId: Long) {
+  private fun forwardMessage(targetUserId: Long, messageId: Long, chatId: Long, messageThreadId: Long = 0) {
     // Create the forwardMessage request
     val forwardMessage = ForwardMessages(
       targetUserId, //Identifier of the chat to which to forward messages.
-      0, // messageThreadId If not 0, the message thread identifier in which the message will be sent; for forum threads only.
+      messageThreadId, // messageThreadId If not 0, the message thread identifier in which the message will be sent; for forum threads only.
       chatId, // fromChatId Identifier of the chat from which to forward messages.
       longArrayOf(messageId), // messageIds Identifiers of the messages to forward. Message identifiers must be in a strictly increasing order. At most 100 messages can be forwarded simultaneously. A message can be forwarded only if message.canBeForwarded.
       MessageSendOptions(
@@ -118,7 +118,7 @@ object AudioForwarder : GlobalMessageListener  {
         null, // schedulingState. null == immediate sending
         Random.nextInt(), // messageIdentifier
         false), // options Options to be used to send the messages; pass null to use default options.
-      true, // sendCopy Pass true to copy content of the messages without reference to the original sender. Always true if the messages are forwarded to a secret chat or are local.
+      false, // sendCopy Pass true to copy content of the messages without reference to the original sender. Always true if the messages are forwarded to a secret chat or are local.
       false, // removeCaption Pass true to remove media captions of message copies. Ignored if sendCopy is false.
     )
 

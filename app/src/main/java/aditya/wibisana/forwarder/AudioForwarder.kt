@@ -135,17 +135,20 @@ object AudioForwarder : GlobalMessageListener  {
 
 
   override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
-    (message?.content as? MessageVoiceNote?)?.run {
-      // do not send if it's a forward: message.forwardInfo != null
-      forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId, message.messageThreadId)
-    }
-    (message?.content as? MessageText?)?.run {
-      (message.replyTo as? MessageReplyToMessage?)?.run {
-        currentTargetId?.also {
-          if (chatId == VOICEHOTKEYBOT) {
-            forwardMessage(it, message.id, message.chatId, message.messageThreadId)
-            currentTargetId = null
-            markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
+    message ?: return
+
+    when(message.content) {
+      is MessageVoiceNote -> {
+        forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId, message.messageThreadId)
+      }
+      is MessageText -> {
+        (message.replyTo as? MessageReplyToMessage?)?.run {
+          currentTargetId?.also {
+            if (chatId == VOICEHOTKEYBOT) {
+              forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+              currentTargetId = null
+              markMessageAsRead(chatId, arrayOf(messageId).toLongArray())
+            }
           }
         }
       }

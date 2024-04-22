@@ -13,7 +13,6 @@ object AudioForwarder : GlobalMessageListener  {
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
   private lateinit var client: Client
-  private lateinit var tdLibActionRepository: TDLibActionRepository
 
   private var currentTargetId : Long? = null
 
@@ -21,7 +20,6 @@ object AudioForwarder : GlobalMessageListener  {
     this.context = tdLibManager
     context.global().addMessageListener(this)
     client = context.current().client()
-    tdLibActionRepository = TDLibActionRepository()
   }
 
   private fun initializeChatAndSendVoiceNoteMessage(targetUserId: Long, voiceNotePath: String) {

@@ -13,6 +13,7 @@ object AudioForwarder : GlobalMessageListener  {
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
   private lateinit var client: Client
+  private lateinit var tdLibActionRepository: TDLibActionRepository
 
   private var currentTargetId : Long? = null
 
@@ -20,47 +21,10 @@ object AudioForwarder : GlobalMessageListener  {
     this.context = tdLibManager
     context.global().addMessageListener(this)
     client = context.current().client()
-  }
-
-  @Suppress("SameParameterValue")
-  private fun initializeChatAndSendMessage(targetUserId: Long, messageText: String?) {
-    // Create the message content
-    val inputMessageText = InputMessageText(
-      FormattedText(messageText, null),
-      null,
-      false)
-
-    val sendMessage = SendMessage(
-      targetUserId,
-      0,
-      null,
-      null,
-      null,
-      inputMessageText)
-
-    // Send the createChat and sendMessage requests
-    client.send(CreatePrivateChat(targetUserId, true)) { result ->
-      if (result is Chat) {
-        // Chat created successfully, now send the message
-        client.send(sendMessage) { sendMessageResult ->
-          if (sendMessageResult is Ok) {
-            println("Message sent successfully")
-          } else {
-            println("Error sending message")
-          }
-        }
-      } else {
-        println("Error creating chat")
-      }
-    }
+    tdLibActionRepository = TDLibActionRepository()
   }
 
   private fun initializeChatAndSendVoiceNoteMessage(targetUserId: Long, voiceNotePath: String) {
-    // Create a new private chat with the user
-    val chat = Chat()
-    chat.id = targetUserId
-    chat.type = ChatTypePrivate()
-
     // Send the createChat request
     client.send(CreatePrivateChat(targetUserId, true)) { result ->
       if (result is Chat) {

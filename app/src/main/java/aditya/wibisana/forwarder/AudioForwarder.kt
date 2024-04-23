@@ -1,18 +1,23 @@
 package aditya.wibisana.forwarder
 
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.launch
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi.*
 import org.thunderdog.challegram.data.TD
 import org.thunderdog.challegram.telegram.GlobalMessageListener
 import org.thunderdog.challegram.telegram.Tdlib
 import org.thunderdog.challegram.telegram.TdlibManager
-import kotlin.random.Random
+import java.util.concurrent.Executors
 
 object AudioForwarder : GlobalMessageListener  {
   @Suppress("SpellCheckingInspection")
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
   private lateinit var client: Client
+
+  private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
   private var currentTargetId : Long? = null
 
@@ -57,52 +62,33 @@ object AudioForwarder : GlobalMessageListener  {
     }
   }
 
-  @Suppress("SameParameterValue")
-  private fun forwardMessage(targetUserId: Long, messageId: Long, chatId: Long, messageThreadId: Long = 0) {
-    // Create the forwardMessage request
-    val forwardMessage = ForwardMessages(
-      targetUserId, //Identifier of the chat to which to forward messages.
-      messageThreadId, // messageThreadId If not 0, the message thread identifier in which the message will be sent; for forum threads only.
-      chatId, // fromChatId Identifier of the chat from which to forward messages.
-      longArrayOf(messageId), // messageIds Identifiers of the messages to forward. Message identifiers must be in a strictly increasing order. At most 100 messages can be forwarded simultaneously. A message can be forwarded only if message.canBeForwarded.
-      MessageSendOptions(
-        true, // disableNotification
-        true, // fromBackground
-        false, // protectContent
-        false, // updateOrderOfInstalledStickerSets
-        null, // schedulingState. null == immediate sending
-        Random.nextInt(), // messageIdentifier
-        false), // options Options to be used to send the messages; pass null to use default options.
-      false, // sendCopy Pass true to copy content of the messages without reference to the original sender. Always true if the messages are forwarded to a secret chat or are local.
-      false, // removeCaption Pass true to remove media captions of message copies. Ignored if sendCopy is false.
-    )
-
-    // Send the forwardMessage request
-    client.send(forwardMessage) { forwardResults ->
-      (forwardResults as? Messages?)?.messages?.forEach {
-        println("targetUserId:${targetUserId} messageId:${messageId} chatId:${chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
-        if (it.content is MessageVoiceNote) {
-          currentTargetId = chatId
-        }
-      }
-    }
-  }
-
-
   override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
     message ?: return
 
     when(message.content) {
       is MessageVoiceNote -> {
-        forwardMessage(VOICEHOTKEYBOT, message.id, message.chatId, message.messageThreadId)
+        CoroutineScope(dispatcher).launch {
+          val targetUserId = VOICEHOTKEYBOT
+          val result = client.forwardMessage(targetUserId, message.id, message.chatId, message.messageThreadId)
+          result?.messages?.forEach {
+            println("targetUserId:${targetUserId} messageId:${message.id} chatId:${message.chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
+            if (it.content is MessageVoiceNote) {
+              currentTargetId = message.chatId
+            }
+          }
+        }
       }
       is MessageText -> {
         val replyTo = message.replyTo as? MessageReplyToMessage? ?: return
         currentTargetId?.also {
           if (replyTo.chatId == VOICEHOTKEYBOT) {
-            forwardMessage(it, message.id, message.chatId, message.messageThreadId)
-            currentTargetId = null
-            markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
+            CoroutineScope(dispatcher).launch {
+              val result = client.forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+              if (result != null) { // only change state if success
+                currentTargetId = null
+              }
+              markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
+            }
           }
         }
       }

@@ -2,6 +2,7 @@ package aditya.wibisana.forwarder
 
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import org.drinkless.tdlib.TdApi.MessageSource
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 import kotlin.random.Random
@@ -70,5 +71,18 @@ suspend fun Client.forwardMessage(targetUserId: Long, messageId: Long, chatId: L
     }
     println("Not returning TdApi.Messages. Should not happened")
     it.resume(null)
+  }
+}
+
+suspend fun Client.markMessageAsRead(chatId: Long, messageIds: LongArray) {
+  listOf(TdApi.MessageSourceNotification(), TdApi.MessageSourceChatHistory(), TdApi.MessageSourceChatList(), TdApi.MessageSourceOther()).forEach {
+    markMessageAsRead(it, chatId, messageIds)
+  }
+}
+
+suspend fun Client.markMessageAsRead(source: MessageSource, chatId: Long, messageIds: LongArray): TdApi.Object = suspendCoroutine {
+  val readMessage = TdApi.ViewMessages(chatId, messageIds, source, true)
+  send(readMessage) { result ->
+    it.resume(result)
   }
 }

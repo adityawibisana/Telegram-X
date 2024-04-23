@@ -5,7 +5,6 @@ import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi.*
-import org.thunderdog.challegram.data.TD
 import org.thunderdog.challegram.telegram.GlobalMessageListener
 import org.thunderdog.challegram.telegram.Tdlib
 import org.thunderdog.challegram.telegram.TdlibManager
@@ -25,41 +24,6 @@ object AudioForwarder : GlobalMessageListener  {
     this.context = tdLibManager
     context.global().addMessageListener(this)
     client = context.current().client()
-  }
-
-  private fun initializeChatAndSendVoiceNoteMessage(targetUserId: Long, voiceNotePath: String) {
-    // Send the createChat request
-    client.send(CreatePrivateChat(targetUserId, true)) { result ->
-      if (result is Chat) {
-        // Chat created successfully, now send the voice note
-        val inputMessageVoiceNote = InputMessageVoiceNote(
-          TD.createInputFile(voiceNotePath),
-          0, // duration (in seconds), set to 0 for auto-detection
-          null, // waveform data (optional)
-          null, // caption (optional)
-          null  // selfDestructType (optional)
-        )
-
-        val sendMessage = SendMessage(
-          targetUserId,
-          0,
-          null, // disableNotification
-          null, // fromBackground
-          null, // schedulingState
-          inputMessageVoiceNote
-        )
-
-        client.send(sendMessage) { sendMessageResult ->
-          if (sendMessageResult is Ok) {
-            println("Voice note sent successfully")
-          } else {
-            println("Error sending voice note")
-          }
-        }
-      } else {
-        println("Error creating chat")
-      }
-    }
   }
 
   override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
@@ -85,7 +49,7 @@ object AudioForwarder : GlobalMessageListener  {
             CoroutineScope(dispatcher).launch {
               client.forwardMessage(it, message.id, message.chatId, message.messageThreadId)
               currentTargetId = null
-              markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
+              client.markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
             }
           }
         }
@@ -100,14 +64,5 @@ object AudioForwarder : GlobalMessageListener  {
   override fun onMessageSendSucceeded(tdlib: Tdlib?, message: Message?, oldMessageId: Long) { }
   override fun onMessageSendFailed(tdlib: Tdlib?, message: Message?, oldMessageId: Long, error: Error?) { }
   override fun onMessagesDeleted(tdlib: Tdlib?, chatId: Long, messageIds: LongArray?) { }
-
-  private fun markMessageAsRead(chatId: Long, messageIds: LongArray) {
-    listOf(MessageSourceNotification(), MessageSourceChatHistory(), MessageSourceChatList(), MessageSourceOther()).forEach {
-      val readMessage = ViewMessages(chatId, messageIds, it, true)
-      client.send(readMessage) {
-        // no use
-      }
-    }
-  }
 }
 

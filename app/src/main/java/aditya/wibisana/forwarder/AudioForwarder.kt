@@ -83,10 +83,8 @@ object AudioForwarder : GlobalMessageListener  {
         currentTargetId?.also {
           if (replyTo.chatId == VOICEHOTKEYBOT) {
             CoroutineScope(dispatcher).launch {
-              val result = client.forwardMessage(it, message.id, message.chatId, message.messageThreadId)
-              if (result != null) { // only change state if success
-                currentTargetId = null
-              }
+              client.forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+              currentTargetId = null
               markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
             }
           }

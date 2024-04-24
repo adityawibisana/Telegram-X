@@ -18,7 +18,7 @@ object AudioForwarder : GlobalMessageListener  {
 
   private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-  private var currentTargetId : Long? = null
+  private var currentTargetId : TargetMessage? = null
 
   fun initialize(tdLibManager: TdlibManager) {
     this.context = tdLibManager
@@ -33,11 +33,14 @@ object AudioForwarder : GlobalMessageListener  {
       is MessageVoiceNote -> {
         CoroutineScope(dispatcher).launch {
           val targetUserId = VOICEHOTKEYBOT
-          val result = client.forwardMessage(targetUserId, message.id, message.chatId, message.messageThreadId)
+          val result = client.forwardMessage(targetUserId, message.id, message.chatId)
           result?.messages?.forEach {
             println("targetUserId:${targetUserId} messageId:${message.id} chatId:${message.chatId} it.chatId:${it.chatId} it.Id:${it.id} it.senderId:${it.senderId}")
             if (it.content is MessageVoiceNote) {
-              currentTargetId = message.chatId
+              currentTargetId = TargetMessage(
+                chatId = message.chatId,
+                messageThreadId = message.messageThreadId
+              )
             }
           }
         }
@@ -47,7 +50,7 @@ object AudioForwarder : GlobalMessageListener  {
         currentTargetId?.also {
           if (replyTo.chatId == VOICEHOTKEYBOT) {
             CoroutineScope(dispatcher).launch {
-              client.forwardMessage(it, message.id, message.chatId, message.messageThreadId)
+              client.forwardMessage(it.chatId, message.id, message.chatId, it.messageThreadId)
               currentTargetId = null
               client.markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())
             }
@@ -65,4 +68,6 @@ object AudioForwarder : GlobalMessageListener  {
   override fun onMessageSendFailed(tdlib: Tdlib?, message: Message?, oldMessageId: Long, error: Error?) { }
   override fun onMessagesDeleted(tdlib: Tdlib?, chatId: Long, messageIds: LongArray?) { }
 }
+
+data class TargetMessage(val chatId: Long, val messageThreadId: Long = 0)
 

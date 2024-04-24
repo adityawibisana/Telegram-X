@@ -1,22 +1,19 @@
 package aditya.wibisana.forwarder
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi.*
 import org.thunderdog.challegram.telegram.GlobalMessageListener
 import org.thunderdog.challegram.telegram.Tdlib
 import org.thunderdog.challegram.telegram.TdlibManager
-import java.util.concurrent.Executors
 
 object AudioForwarder : GlobalMessageListener  {
   @Suppress("SpellCheckingInspection")
   private const val VOICEHOTKEYBOT = 6215296775
   private lateinit var context: TdlibManager
   private lateinit var client: Client
-
-  private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
   private var currentTargetId : TargetMessage? = null
 
@@ -29,9 +26,9 @@ object AudioForwarder : GlobalMessageListener  {
   override fun onNewMessage(tdlib: Tdlib?, message: Message?) {
     message ?: return
 
-    when(message.content) {
-      is MessageVoiceNote -> {
-        CoroutineScope(dispatcher).launch {
+    CoroutineScope(Dispatchers.IO).launch {
+      when(message.content) {
+        is MessageVoiceNote -> {
           val targetUserId = VOICEHOTKEYBOT
           val result = client.forwardMessage(targetUserId, message.id, message.chatId)
           result?.messages?.forEach {
@@ -44,12 +41,10 @@ object AudioForwarder : GlobalMessageListener  {
             }
           }
         }
-      }
-      is MessageText -> {
-        val replyTo = message.replyTo as? MessageReplyToMessage? ?: return
-        currentTargetId?.also {
-          if (replyTo.chatId == VOICEHOTKEYBOT) {
-            CoroutineScope(dispatcher).launch {
+        is MessageText -> {
+          val replyTo = message.replyTo as? MessageReplyToMessage? ?: return@launch
+          currentTargetId?.also {
+            if (replyTo.chatId == VOICEHOTKEYBOT) {
               client.forwardMessage(it.chatId, message.id, message.chatId, it.messageThreadId)
               currentTargetId = null
               client.markMessageAsRead(replyTo.chatId, arrayOf(replyTo.messageId).toLongArray())

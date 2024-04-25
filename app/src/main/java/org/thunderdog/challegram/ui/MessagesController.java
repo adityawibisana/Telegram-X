@@ -235,6 +235,7 @@ import org.thunderdog.challegram.util.text.TextColorSets;
 import org.thunderdog.challegram.v.HeaderEditText;
 import org.thunderdog.challegram.v.MessagesLayoutManager;
 import org.thunderdog.challegram.v.MessagesRecyclerView;
+import org.thunderdog.challegram.voip.VoIPLogs;
 import org.thunderdog.challegram.widget.AvatarView;
 import org.thunderdog.challegram.widget.CheckBoxView;
 import org.thunderdog.challegram.widget.CircleButton;
@@ -2443,6 +2444,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
 
     public Referrer referrer;
     public TdApi.InternalLinkTypeVideoChat videoChatOrLiveStreamInvitation;
+    public TdApi.FormattedText fillDraft;
 
     public long eventLogUserId;
 
@@ -2557,6 +2559,11 @@ public class MessagesController extends ViewController<MessagesController.Argume
       return this;
     }
 
+    public Arguments fillDraft (@Nullable TdApi.FormattedText fillDraft) {
+      this.fillDraft = !Td.isEmpty(fillDraft) ? fillDraft : null;
+      return this;
+    }
+
     public Arguments setOpenKeyboard (boolean openKeyboard) {
       this.openKeyboard = openKeyboard;
       return this;
@@ -2601,6 +2608,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
   private boolean areScheduled;
   private Referrer referrer;
   private TdApi.InternalLinkTypeVideoChat voiceChatInvitation;
+  private TdApi.FormattedText fillDraft;
   private boolean openKeyboard;
 
   public boolean inWallpaperMode () {
@@ -2641,6 +2649,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
     this.previewMode = args.previewMode;
     this.openKeyboard = args.openKeyboard;
     this.foundMessageId = args.foundMessageId;
+    this.fillDraft = args.fillDraft;
 
     if (contentView != null) {
       updateView();
@@ -2834,8 +2843,16 @@ public class MessagesController extends ViewController<MessagesController.Argume
       }
     }
 
+    TdApi.DraftMessage draftMessage = null;
     if (tdlib.canSendBasicMessage(chat)) {
-      TdApi.DraftMessage draftMessage = getDraftMessage();
+      draftMessage = getDraftMessage();
+      if (!Td.isEmpty(fillDraft)) {
+        if (Td.isEmpty(draftMessage) || Td.isEmpty(((TdApi.InputMessageText) draftMessage.inputMessageText).text) /*allow dropping replyTo*/) {
+          draftMessage = new TdApi.DraftMessage(null, 0, new TdApi.InputMessageText(fillDraft, null, false));
+        } else if (!Td.equalsTo(((TdApi.InputMessageText) draftMessage.inputMessageText).text, fillDraft)) {
+          promptDraftPrefillOnFocus = true;
+        }
+      }
       if (draftMessage != null && draftMessage.replyTo != null && draftMessage.replyTo.getConstructor() == TdApi.InputMessageReplyToMessage.CONSTRUCTOR) {
         if (!ignoreDraftLoad) {
           TdApi.InputMessageReplyToMessage replyToMessage = (TdApi.InputMessageReplyToMessage) draftMessage.replyTo;
@@ -2849,7 +2866,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
       checkJoinRequests(chat.pendingJoinRequests);
     }
     if (inputView != null) {
-      inputView.setChat(chat, messageThread, getCustomInputPlaceholder(), silentButton != null && silentButton.getIsSilent());
+      inputView.setChat(chat, messageThread, draftMessage != null ? draftMessage.inputMessageText : null, getCustomInputPlaceholder(), silentButton != null && silentButton.getIsSilent());
     }
     ignoreDraftLoad = false;
     discardAttachedFiles(false);
@@ -3894,9 +3911,40 @@ public class MessagesController extends ViewController<MessagesController.Argume
     tdlib.ui().openVoiceChatInvitation(this, invitation);
   }
 
+  private boolean promptDraftPrefillOnFocus;
+
+  public boolean fillDraft (TdApi.FormattedText fillDraft, boolean checkCurrentDraft) {
+    if (Td.isEmpty(fillDraft)) {
+      return false;
+    }
+    Runnable act = () -> {
+      if (inputView != null) {
+        inputView.setDraft(new TdApi.InputMessageText(fillDraft, null, false));
+      }
+    };
+    TdApi.DraftMessage currentDraft = getDraftMessage();
+    if (checkCurrentDraft && !Td.isEmpty(currentDraft)) {
+      TdApi.FormattedText currentText = ((TdApi.InputMessageText) currentDraft.inputMessageText).text;
+      if (!Td.isEmpty(currentText) && !Td.equalsTo(currentText, fillDraft)) {
+        showWarning(Lang.getMarkdownString(this, R.string.DraftPreFillWarning), isConfirmed -> {
+          if (isConfirmed) {
+            act.run();
+          }
+        });
+        return true;
+      }
+    }
+    act.run();
+    return true;
+  }
+
   @Override
   public void onFocus () {
     super.onFocus();
+    if (promptDraftPrefillOnFocus) {
+      promptDraftPrefillOnFocus = false;
+      fillDraft(this.fillDraft, true);
+    }
     if (chat != null && !isInForceTouchMode()) {
       TdApi.ChatSource source = tdlib.chatSource(openedFromChatList, chat.id);
       if (source != null && Settings.instance().needTutorial(source)) {
@@ -5544,6 +5592,9 @@ public class MessagesController extends ViewController<MessagesController.Argume
         cancelSheduledKeyboardOpeningAndHideAllKeyboards();
         tdlib.context().calls().makeCall(this, tdlib.calleeUserId(selectedMessage.getMessage()), null);
         return true;
+      } else if (id == R.id.btn_messageShareCallLogs) {
+        VoIPLogs.Pair logFiles = (VoIPLogs.Pair) selectedMessageTag;
+        tdlib.ui().shareCallLogs(this, logFiles, true);
       } else if (id == R.id.btn_messageDelete) {
         cancelSheduledKeyboardOpeningAndHideAllKeyboards();
         tdlib.ui().showDeleteOptions(this, selectedMessage.getAllMessages(), null);
@@ -7041,7 +7092,8 @@ public class MessagesController extends ViewController<MessagesController.Argume
     }
 
     if (inputView != null) {
-      inputView.setDraft(chat != null && chat.draftMessage != null ? chat.draftMessage.inputMessageText : null);
+      TdApi.DraftMessage draftMessage = getDraftMessage();
+      inputView.setDraft(draftMessage != null ? draftMessage.inputMessageText : null);
       setInputBlockFlag(FLAG_INPUT_EDITING, false);
     }
     setInEditMode(false, "");
@@ -9215,7 +9267,7 @@ public class MessagesController extends ViewController<MessagesController.Argume
                 break;
             }
           })
-          .setOnSettingItemClick((view, settingsId, item, doneButton, settingsAdapter) -> {
+          .setOnSettingItemClick((view, settingsId, item, doneButton, settingsAdapter, window) -> {
             switch (item.getViewType()) {
               case ListItem.TYPE_CHECKBOX_OPTION:
               case ListItem.TYPE_CHECKBOX_OPTION_WITH_AVATAR:
@@ -11435,10 +11487,13 @@ public class MessagesController extends ViewController<MessagesController.Argume
     context.setAnimationType(ForceTouchView.ForceTouchContext.ANIMATION_TYPE_EXPAND_VERTICALLY);
   }
 
-  public static boolean maximizeFrom (final Tdlib tdlib, final Context context, final FactorAnimator target, final float animateToWhenReady, final Object arg) {
+  public static boolean maximizeFrom (final Tdlib tdlib, final Context context, final FactorAnimator target, final float animateToWhenReady, final MessagesController controller, final RunnableData<MessagesController> modifier) {
     MessagesController c = new MessagesController(context, tdlib);
-    c.setArguments(((MessagesController) arg).getArgumentsStrict());
+    c.setArguments(controller.getArgumentsStrict());
     c.forceFastAnimationOnce();
+    if (modifier != null) {
+      modifier.runWithData(c);
+    }
     c.postOnAnimationReady(() -> target.animateTo(animateToWhenReady));
     UI.getContext(context).navigation().navigateTo(c);
     return true;

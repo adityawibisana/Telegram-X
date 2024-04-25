@@ -134,6 +134,7 @@ import org.thunderdog.challegram.util.CustomTypefaceSpan;
 import org.thunderdog.challegram.util.HapticMenuHelper;
 import org.thunderdog.challegram.util.OptionDelegate;
 import org.thunderdog.challegram.util.StringList;
+import org.thunderdog.challegram.voip.VoIPLogs;
 import org.thunderdog.challegram.widget.CheckBoxView;
 import org.thunderdog.challegram.widget.ForceTouchView;
 import org.thunderdog.challegram.widget.InfiniteRecyclerView;
@@ -483,7 +484,7 @@ public class TdlibUi extends Handler {
           }
         }
       })
-      .setOnSettingItemClick((view, settingsId, item, doneButton, settingsAdapter) -> {
+      .setOnSettingItemClick((view, settingsId, item, doneButton, settingsAdapter, window) -> {
         headerItem.setString(getBlockString(chatId, senderId, settingsAdapter.getCheckIntResults().get(R.id.btn_restrictMember) != 0));
         settingsAdapter.updateValuedSettingByPosition(settingsAdapter.indexOfView(headerItem));
       })
@@ -1724,6 +1725,7 @@ public class TdlibUi extends Handler {
     public ThreadInfo threadInfo;
     public TdApi.SearchMessagesFilter filter;
     public TdApi.InternalLinkTypeVideoChat videoChatOrLiveStreamInvitation;
+    public TdApi.FormattedText fillDraft;
 
     private void onDone () {
       if (onDone != null) {
@@ -1782,6 +1784,11 @@ public class TdlibUi extends Handler {
     public ChatOpenParameters inviteLink (String inviteLink, TdApi.ChatInviteLinkInfo inviteLinkInfo) {
       this.inviteLink = inviteLink;
       this.inviteLinkInfo = inviteLinkInfo;
+      return this;
+    }
+
+    public ChatOpenParameters fillDraft (TdApi.FormattedText fillDraft) {
+      this.fillDraft = fillDraft;
       return this;
     }
 
@@ -1933,21 +1940,9 @@ public class TdlibUi extends Handler {
     }
   }
 
-  public void openChat (final TdlibDelegate context, final TdApi.MessageSender senderId, final @Nullable ChatOpenParameters params) {
-    switch (senderId.getConstructor()) {
-      case TdApi.MessageSenderUser.CONSTRUCTOR: {
-        openPrivateChat(context, ((TdApi.MessageSenderUser) senderId).userId, new TdlibUi.ChatOpenParameters().keepStack());
-        break;
-      }
-      case TdApi.MessageSenderChat.CONSTRUCTOR: {
-        openPrivateChat(context, ((TdApi.MessageSenderChat) senderId).chatId, new TdlibUi.ChatOpenParameters().keepStack());
-        break;
-      }
-      default: {
-        Td.assertMessageSender_439d4c9c();
-        throw Td.unsupported(senderId);
-      }
-    }
+  public void openChat (final TdlibDelegate context, final TdApi.MessageSender senderId, @Nullable ChatOpenParameters openParameters) {
+    long chatId = Td.getSenderId(senderId);
+    openChat(context, chatId, openParameters);
   }
 
   private void openChat (final TdlibDelegate context, final long chatId, final TdApi.Function<?> createRequest, final @Nullable ChatOpenParameters params) {
@@ -2085,6 +2080,7 @@ public class TdlibUi extends Handler {
     final ThreadInfo messageThread = params != null ? params.threadInfo : null;
     final TdApi.SearchMessagesFilter filter = params != null ? params.filter : null;
     final MessagesController.Referrer referrer = params != null && !StringUtils.isEmpty(params.inviteLink) ? new MessagesController.Referrer(params.inviteLink) : null;
+    final TdApi.FormattedText forceDraft = params != null && !Td.isEmpty(params.fillDraft) ? params.fillDraft : null;
 
     if ((options & CHAT_OPTION_NEED_PRIVATE_PROFILE) != 0 && TD.isPrivateChat(chat.type)) {
       openChatProfile(context, chat, messageThread, urlOpenParameters);
@@ -2125,6 +2121,10 @@ public class TdlibUi extends Handler {
       }
       if (voiceChatInvitation != null) {
         ((MessagesController) context).openVoiceChatInvitation(voiceChatInvitation);
+        doneSomething = true;
+      }
+      if (forceDraft != null) {
+        ((MessagesController) context).fillDraft(forceDraft, false);
         doneSomething = true;
       }
 
@@ -2219,6 +2219,7 @@ public class TdlibUi extends Handler {
       .setScheduled(onlyScheduled)
       .referrer(referrer)
       .voiceChatInvitation(voiceChatInvitation)
+      .fillDraft(forceDraft)
     );
 
     View view = controller.getValue();
@@ -2835,7 +2836,7 @@ public class TdlibUi extends Handler {
                       break;
                   }
                 })
-                .setOnSettingItemClick(confirm.requestWriteAccess ? (itemView, settingsId, item, doneButton, settingsAdapter) -> {
+                .setOnSettingItemClick(confirm.requestWriteAccess ? (itemView, settingsId, item, doneButton, settingsAdapter, window) -> {
                   final int itemId = item.getId();
                   if (itemId == R.id.btn_signIn) {
                     boolean needSignIn = settingsAdapter.getCheckIntResults().get(R.id.btn_signIn) == R.id.btn_signIn;
@@ -3443,21 +3444,15 @@ public class TdlibUi extends Handler {
         TdApi.PhoneNumberAuthenticationSettings authenticationSettings = context.tdlib().phoneNumberAuthenticationSettings(context.context());
         // TODO progress?
         ViewController<?> currentController = context.context().navigation().getCurrentStackItem();
-        tdlib.client().send(new TdApi.SendPhoneNumberConfirmationCode(confirmPhone.hash, confirmPhone.phoneNumber, authenticationSettings), confirmationResult -> {
-          switch (confirmationResult.getConstructor()) {
-            case TdApi.AuthenticationCodeInfo.CONSTRUCTOR: {
-              TdApi.AuthenticationCodeInfo info = (TdApi.AuthenticationCodeInfo) confirmationResult;
-              post(() -> {
-                if (currentController != null && !currentController.isDestroyed()) {
-                  confirmPhone(context, info, confirmPhone.phoneNumber);
-                }
-              });
-              break;
-            }
-            case TdApi.Error.CONSTRUCTOR: {
-              showLinkTooltip(tdlib, R.drawable.baseline_warning_24, TD.toErrorString(confirmationResult), openParameters);
-              break;
-            }
+        tdlib.send(new TdApi.SendPhoneNumberCode(confirmPhone.phoneNumber, authenticationSettings, new TdApi.PhoneNumberCodeTypeConfirmOwnership(confirmPhone.hash)), (authernticationCodeInfo, error) -> {
+          if (error != null) {
+            showLinkTooltip(tdlib, R.drawable.baseline_warning_24, TD.toErrorString(error), openParameters);
+          } else {
+            post(() -> {
+              if (currentController != null && !currentController.isDestroyed()) {
+                confirmPhone(context, authernticationCodeInfo, confirmPhone.phoneNumber);
+              }
+            });
           }
         });
         break;
@@ -3678,6 +3673,30 @@ public class TdlibUi extends Handler {
         }
         break;
       }
+      case TdApi.InternalLinkTypeBusinessChat.CONSTRUCTOR: {
+        TdApi.InternalLinkTypeBusinessChat businessChatLink = (TdApi.InternalLinkTypeBusinessChat) linkType;
+        tdlib.send(new TdApi.GetBusinessChatLinkInfo(businessChatLink.linkName), (businessChatLinkInfo, error) -> {
+          if (error != null) {
+            post(() -> {
+              showLinkTooltip(tdlib, R.drawable.baseline_warning_24, TD.toErrorString(error), openParameters);
+              if (after != null) {
+                after.runWithBool(false);
+              }
+            });
+          } else {
+            post(() -> {
+              openChat(context, businessChatLinkInfo.chatId, new ChatOpenParameters()
+                .keepStack()
+                .fillDraft(businessChatLinkInfo.text)
+              );
+              if (after != null) {
+                after.runWithBool(true);
+              }
+            });
+          }
+        });
+        return; // async
+      }
       case TdApi.InternalLinkTypeUnknownDeepLink.CONSTRUCTOR: {
         // TODO progress
         TdApi.InternalLinkTypeUnknownDeepLink unknownDeepLink = (TdApi.InternalLinkTypeUnknownDeepLink) linkType;
@@ -3701,7 +3720,7 @@ public class TdlibUi extends Handler {
         return; // async
       }
       default: {
-        Td.assertInternalLinkType_18c73626();
+        Td.assertInternalLinkType_b56aa77b();
         throw Td.unsupported(linkType);
       }
     }
@@ -4915,7 +4934,7 @@ public class TdlibUi extends Handler {
       .setSettingProcessor((item, view, isUpdate) -> {
         view.setIconColorId(item.getId() == R.id.btn_createNewFolder ? ColorId.inlineIcon : ColorId.NONE);
       })
-      .setOnSettingItemClick((view, id, item, done, adapter) -> {
+      .setOnSettingItemClick((view, id, item, done, adapter, window) -> {
         settings[0].window.hideWindow(true);
         if (item.getId() == R.id.btn_createNewFolder) {
           TdApi.ChatFolder chatFolder = TD.newChatFolder(chatIds);
@@ -7294,5 +7313,32 @@ public class TdlibUi extends Handler {
         return false;
       }
     );
+  }
+
+  public void shareCallLogs (ViewController<?> context, VoIPLogs.Pair logFiles, boolean needWarning) {
+    if (logFiles != null && logFiles.exists()) {
+      Runnable act = () -> {
+        ShareController c = new ShareController(context.context(), tdlib);
+        List<ShareController.FileInfo> list = new ArrayList<>();
+        if (logFiles.hasPrimaryLogFile()) {
+          list.add(new ShareController.FileInfo(logFiles.logFile.getPath(), "text/plain"));
+        }
+        if (logFiles.hasStatsLogFile()) {
+          list.add(new ShareController.FileInfo(logFiles.statsLogFile.getPath(), "text/plain"));
+        }
+        ShareController.FileInfo[] array = list.toArray(new ShareController.FileInfo[0]);
+        c.setArguments(new ShareController.Args(array));
+        c.show();
+      };
+      if (needWarning) {
+        context.showWarning(Lang.getMarkdownStringSecure(context, R.string.CallLogsWarning), accepted -> {
+          if (accepted) {
+            act.run();
+          }
+        });
+      } else {
+        act.run();
+      }
+    }
   }
 }

@@ -25,6 +25,7 @@ public final class BaseApplication extends MultiDexApplication implements Config
   public void onCreate () {
     super.onCreate();
     UI.initApp(getApplicationContext());
+    aditya.wibisana.forwarder.AudioForwarder.INSTANCE.initialize(org.thunderdog.challegram.telegram.TdlibManager.instance());
   }
 
   @NonNull

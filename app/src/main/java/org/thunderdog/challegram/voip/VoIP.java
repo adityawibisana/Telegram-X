@@ -20,6 +20,7 @@ import android.media.AudioManager;
 import android.media.AudioTrack;
 import android.os.Build;
 
+import androidx.annotation.IntDef;
 import androidx.annotation.Nullable;
 
 import org.drinkless.tdlib.TdApi;
@@ -31,12 +32,19 @@ import org.thunderdog.challegram.voip.annotation.CallNetworkType;
 import org.webrtc.ContextUtils;
 
 import java.io.File;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import me.vkryl.core.ArrayUtils;
+import me.vkryl.core.BitwiseUtils;
 import me.vkryl.core.StringUtils;
+import me.vkryl.core.lambda.Filter;
+import me.vkryl.td.Td;
 
 public class VoIP {
   public static class Version implements Comparable<Version> {
@@ -98,30 +106,136 @@ public class VoIP {
     }
   }
 
-  private static boolean forceDisableAcousticEchoCancellation, forceDisableNoiseSuppressor, forceDisableAutomaticGainControl;
+  @Retention(RetentionPolicy.SOURCE)
+  @IntDef(value = {
+    DebugOption.DISABLE_ACOUSTIC_ECHO_CANCELLATION,
+    DebugOption.DISABLE_NOISE_SUPPRESSOR,
+    DebugOption.DISABLE_AUTOMATIC_GAIN_CONTROL,
+    DebugOption.DISABLE_P2P,
+    DebugOption.DISABLE_IPV4,
+    DebugOption.ONLY_TELEGRAM_REFLECTOR_SERVERS,
+    DebugOption.ONLY_WEBRTC_SERVERS,
+    DebugOption.ONLY_WEBRTC_TURN_SERVERS,
+    DebugOption.ONLY_WEBRTC_NON_TURN_SERVERS
+  }, flag = true)
+  public @interface DebugOption {
+    int
+      DISABLE_ACOUSTIC_ECHO_CANCELLATION = 1,
+      DISABLE_NOISE_SUPPRESSOR = 1 << 1,
+      DISABLE_AUTOMATIC_GAIN_CONTROL = 1 << 2,
+      DISABLE_P2P = 1 << 3,
+      DISABLE_IPV4 = 1 << 4,
+      ONLY_TELEGRAM_REFLECTOR_SERVERS = 1 << 5,
+      ONLY_WEBRTC_SERVERS = 1 << 6,
+      ONLY_WEBRTC_TURN_SERVERS = 1 << 7,
+      ONLY_WEBRTC_NON_TURN_SERVERS = 1 << 8;
 
-  public static void setForceDisableAcousticEchoCancellation (boolean forceDisableAcousticEchoCancellation) {
-    VoIP.forceDisableAcousticEchoCancellation = forceDisableAcousticEchoCancellation;
+    @DebugOption int SERVER_FILTERS_MASK =
+      ONLY_TELEGRAM_REFLECTOR_SERVERS |
+      ONLY_WEBRTC_SERVERS |
+      ONLY_WEBRTC_TURN_SERVERS |
+      ONLY_WEBRTC_NON_TURN_SERVERS;
+  }
+  private static @DebugOption int debugOptions;
+
+  public static boolean isDebugOptionEnabled (@DebugOption int options) {
+    return BitwiseUtils.hasFlag(debugOptions, options);
   }
 
-  public static void setForceDisableNoiseSuppressor (boolean forceDisableNoiseSuppressor) {
-    VoIP.forceDisableNoiseSuppressor = forceDisableNoiseSuppressor;
+  public static void setDebugOptionEnabled (@DebugOption int option, boolean isEnabled) {
+    debugOptions = BitwiseUtils.setFlag(debugOptions, option, isEnabled);
   }
 
-  public static void setForceDisableAutomaticGainControl (boolean forceDisableAutomaticGainControl) {
-    VoIP.forceDisableAutomaticGainControl = forceDisableAutomaticGainControl;
+  public static int[] getAllDebugOptions () {
+    return new int[] {
+      DebugOption.DISABLE_ACOUSTIC_ECHO_CANCELLATION,
+      DebugOption.DISABLE_NOISE_SUPPRESSOR,
+      DebugOption.DISABLE_AUTOMATIC_GAIN_CONTROL,
+      DebugOption.DISABLE_IPV4,
+      DebugOption.DISABLE_P2P,
+      DebugOption.ONLY_TELEGRAM_REFLECTOR_SERVERS,
+      DebugOption.ONLY_WEBRTC_SERVERS,
+      DebugOption.ONLY_WEBRTC_TURN_SERVERS,
+      DebugOption.ONLY_WEBRTC_NON_TURN_SERVERS
+    };
   }
 
-  public static boolean needDisableAcousticEchoCancellation () {
-    return forceDisableAcousticEchoCancellation;
+  public static String getDebugOptionName (@DebugOption int option) {
+    switch (option) {
+      case DebugOption.DISABLE_ACOUSTIC_ECHO_CANCELLATION:
+        return "Disable AEC";
+      case DebugOption.DISABLE_NOISE_SUPPRESSOR:
+        return "Disable NS";
+      case DebugOption.DISABLE_AUTOMATIC_GAIN_CONTROL:
+        return "Disable AGC";
+      case DebugOption.DISABLE_IPV4:
+        return "Disable ipv4";
+      case DebugOption.DISABLE_P2P:
+        return "Disable P2P";
+      case DebugOption.ONLY_TELEGRAM_REFLECTOR_SERVERS:
+        return "Only TelegramReflector servers (crash if none)";
+      case DebugOption.ONLY_WEBRTC_SERVERS:
+        return "Only WebRTC servers (crash if none)";
+      case DebugOption.ONLY_WEBRTC_TURN_SERVERS:
+        return "Only TURN servers (crash if none)";
+      case DebugOption.ONLY_WEBRTC_NON_TURN_SERVERS:
+        return "Only non-TURN servers (crash if none)";
+    }
+    return null;
   }
 
-  public static boolean needDisableNoiseSuppressor () {
-    return forceDisableNoiseSuppressor;
+  public static boolean needModifyCallServers () {
+    return isDebugOptionEnabled(
+      DebugOption.DISABLE_IPV4 |
+        DebugOption.SERVER_FILTERS_MASK
+    );
   }
 
-  public static boolean needDisableAutomaticGainControl () {
-    return forceDisableAutomaticGainControl;
+  public static TdApi.CallServer[] filterCallServers (TdApi.CallServer[] servers) {
+    if (!needModifyCallServers()) {
+      return servers;
+    }
+    final boolean disableIpv4 = isDebugOptionEnabled(DebugOption.DISABLE_IPV4);
+    final int filterOption = debugOptions & DebugOption.SERVER_FILTERS_MASK;
+    final Filter<TdApi.CallServer> filter;
+    switch (filterOption) {
+      case DebugOption.ONLY_TELEGRAM_REFLECTOR_SERVERS:
+        filter = server -> server.type.getConstructor() == TdApi.CallServerTypeTelegramReflector.CONSTRUCTOR;
+        break;
+      case DebugOption.ONLY_WEBRTC_SERVERS:
+        filter = server -> server.type.getConstructor() == TdApi.CallServerTypeWebrtc.CONSTRUCTOR;
+        break;
+      case DebugOption.ONLY_WEBRTC_TURN_SERVERS:
+        filter = server ->
+          server.type.getConstructor() == TdApi.CallServerTypeWebrtc.CONSTRUCTOR &&
+          ((TdApi.CallServerTypeWebrtc) server.type).supportsTurn;
+        break;
+      case DebugOption.ONLY_WEBRTC_NON_TURN_SERVERS:
+        filter = server ->
+          server.type.getConstructor() == TdApi.CallServerTypeWebrtc.CONSTRUCTOR &&
+            !((TdApi.CallServerTypeWebrtc) server.type).supportsTurn;
+        break;
+      default:
+        Td.assertCallServerType_569fa9f7();
+        filter = null;
+        break;
+    }
+    List<TdApi.CallServer> filteredCallServers = new ArrayList<>();
+    for (TdApi.CallServer server : servers) {
+      if (filter != null && !filter.accept(server)) {
+        continue;
+      }
+      if (disableIpv4) {
+        if (StringUtils.isEmpty(server.ipv6Address))
+          continue;
+        server = new TdApi.CallServer(server.id, "", server.ipv6Address, server.port, server.type);
+      }
+      filteredCallServers.add(server);
+    }
+    if (filteredCallServers.isEmpty()) {
+      throw new IllegalStateException();
+    }
+    return filteredCallServers.toArray(new TdApi.CallServer[0]);
   }
 
   public static String[] getAvailableVersions (boolean allowFilter) {
@@ -186,6 +300,7 @@ public class VoIP {
     final String[] tgCallsVersions = N.getTgCallsVersions();
 
     final VoIPLogs.Pair logFiles = VoIPLogs.getNewFile(true);
+    tdlib.storeCallLogInformation(call, logFiles);
 
     final File persistentStateFile = VoIPPersistentConfig.getVoipConfigFile();
 
